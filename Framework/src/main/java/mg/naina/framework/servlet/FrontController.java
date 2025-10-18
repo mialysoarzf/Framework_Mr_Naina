@@ -6,217 +6,211 @@ import mg.naina.framework.core.Mapping;
 import org.reflections.Reflections;
 import org.reflections.util.ConfigurationBuilder;
 
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.io.PrintWriter;
+import jakarta.servlet.*;
+import jakarta.servlet.http.*;
+import java.io.*;
 import java.lang.reflect.Method;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.nio.file.Files;
+import java.util.*;
 
-/**
- * Servlet principal du framework qui gère toutes les requêtes
- */
 public class FrontController extends HttpServlet {
     
     private Map<String, Mapping> urlMappings = new HashMap<>();
     private String basePackage;
+    private String projectRoot;
 
     @Override
     public void init() throws ServletException {
         super.init();
-        
-        System.out.println("=== DEMARRAGE FRONTCONTROLLER ===");
-        
-        // Récupération du paramètre basePackage depuis web.xml
         basePackage = getInitParameter("basePackage");
-        if (basePackage == null || basePackage.trim().isEmpty()) {
-            basePackage = "mg.naina.test";
-        }
-        
-        System.out.println("Initialisation FrontController avec basePackage: " + basePackage);
-        System.out.println("ClassLoader: " + this.getClass().getClassLoader());
-        
-        // Test de la disponibilité de Reflections
+        if (basePackage == null || basePackage.trim().isEmpty()) basePackage = "mg.naina.test";
+        detectProjectRoot();
         try {
-            Class.forName("org.reflections.Reflections");
-            System.out.println("Reflections library disponible");
-        } catch (ClassNotFoundException e) {
-            System.err.println("ERREUR CRITIQUE: Reflections library non trouvée!");
-            throw new ServletException("Reflections library manquante", e);
-        }
-        
-        scanControllers();
-        System.out.println("Nombre de mappings trouvés: " + urlMappings.size());
-        
-        // Affichage de tous les mappings
-        System.out.println("=== MAPPINGS ENREGISTRES ===");
-        for (Map.Entry<String, Mapping> entry : urlMappings.entrySet()) {
-            System.out.println(entry.getKey() + " -> " + entry.getValue().getClassName() + "." + entry.getValue().getMethodName());
-        }
-        System.out.println("=== FIN DEMARRAGE ===");
-    }
-
-    /**
-     * Scanne tous les contrôleurs et crée les mappings URL
-     */
-    private void scanControllers() {
-        try {
-            System.out.println("Démarrage du scan des contrôleurs dans le package: " + basePackage);
-            
-            // Configuration explicite de Reflections
-            ConfigurationBuilder config = new ConfigurationBuilder()
-                .forPackages(basePackage);
-                
-            Reflections reflections = new Reflections(config);
-            Set<Class<?>> controllers = reflections.getTypesAnnotatedWith(Controller.class);
-            
-            System.out.println("Classes trouvées avec @Controller: " + controllers.size());
-            
-            if (controllers.isEmpty()) {
-                System.err.println("ATTENTION: Aucun contrôleur trouvé dans le package " + basePackage);
-                
-                // Test direct de chargement de la classe HomeController
-                try {
-                    Class<?> homeController = Class.forName("mg.naina.test.controller.HomeController");
-                    System.out.println("HomeController trouvé directement: " + homeController.getName());
-                    
-                    if (homeController.isAnnotationPresent(Controller.class)) {
-                        System.out.println("HomeController a l'annotation @Controller");
-                        controllers.add(homeController);
-                    }
-                } catch (ClassNotFoundException e) {
-                    System.err.println("HomeController non trouvé: " + e.getMessage());
-                }
-            }
-
-            for (Class<?> controllerClass : controllers) {
-                System.out.println("Traitement du contrôleur: " + controllerClass.getName());
-                try {
-                    Object controllerInstance = controllerClass.getDeclaredConstructor().newInstance();
-                    
-                    for (Method method : controllerClass.getDeclaredMethods()) {
-                        if (method.isAnnotationPresent(UrlMapping.class)) {
-                            UrlMapping urlMapping = method.getAnnotation(UrlMapping.class);
-                            String url = urlMapping.value();
-                            
-                            Mapping mapping = new Mapping(
-                                controllerClass.getName(),
-                                method.getName(),
-                                method,
-                                controllerInstance
-                            );
-                            
-                            urlMappings.put(url, mapping);
-                            System.out.println("Mapping ajouté: " + url + " -> " + controllerClass.getName() + "." + method.getName());
-                        }
-                    }
-                } catch (Exception e) {
-                    System.err.println("Erreur lors de l'instantiation du contrôleur: " + controllerClass.getName());
-                    e.printStackTrace();
-                }
-            }
+            scanControllers();
         } catch (Exception e) {
-            System.err.println("Erreur lors du scan des contrôleurs:");
-            e.printStackTrace();
+            throw new ServletException("Erreur init", e);
         }
     }
 
-    @Override
-    protected void doGet(HttpServletRequest request, HttpServletResponse response) 
-            throws ServletException, IOException {
-        processRequest(request, response);
+    private void detectProjectRoot() {
+        try {
+            String webappPath = getServletContext().getRealPath("/");
+            File webappDir = webappPath != null ? new File(webappPath) : null;
+            
+            for (String path : new String[] {
+                webappDir != null && webappDir.getParentFile() != null ? webappDir.getParentFile().getParentFile().getAbsolutePath() : null,
+                System.getProperty("user.dir"),
+                "C:\\Users\\HP\\Documents\\ITU\\Mr_Naina\\Mr_Naina_Framework\\Sprint1_Bis"
+            }) {
+                if (path != null && new File(path).exists() && 
+                    new File(path, "Framework").exists() && 
+                    new File(path, "Test").exists()) {
+                    projectRoot = path;
+                    return;
+                }
+            }
+            projectRoot = "C:\\Users\\HP\\Documents\\ITU\\Mr_Naina\\Mr_Naina_Framework\\Sprint1_Bis";
+        } catch (Exception e) {
+            projectRoot = System.getProperty("user.dir");
+        }
     }
 
-    @Override
-    protected void doPost(HttpServletRequest request, HttpServletResponse response) 
-            throws ServletException, IOException {
-        processRequest(request, response);
+    private void scanControllers() {
+        Reflections reflections = new Reflections(new ConfigurationBuilder().forPackages(basePackage));
+        Set<Class<?>> controllers = reflections.getTypesAnnotatedWith(Controller.class);
+        
+        if (controllers.isEmpty()) {
+            try {
+                Class<?> homeController = Class.forName("mg.naina.test.controller.HomeController");
+                if (homeController.isAnnotationPresent(Controller.class)) controllers.add(homeController);
+            } catch (ClassNotFoundException ignored) {}
+        }
+
+        for (Class<?> cls : controllers) {
+            try {
+                Object instance = cls.getDeclaredConstructor().newInstance();
+                for (Method method : cls.getDeclaredMethods()) {
+                    if (method.isAnnotationPresent(UrlMapping.class)) {
+                        urlMappings.put(method.getAnnotation(UrlMapping.class).value(), 
+                            new Mapping(cls.getName(), method.getName(), method, instance));
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
     }
 
-    /**
-     * Traite la requête en trouvant le mapping correspondant
-     */
-    private void processRequest(HttpServletRequest request, HttpServletResponse response) 
-            throws ServletException, IOException {
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        processRequest(req, resp);
+    }
+    
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        processRequest(req, resp);
+    }
+
+    private File findFile(String path) {
+        String fileName = path.startsWith("/") ? path.substring(1) : path;
         
-        String requestURI = request.getRequestURI();
-        String contextPath = request.getContextPath();
-        String path = requestURI.substring(contextPath.length());
-        
-        // Gestion du path vide
-        if (path.isEmpty()) {
-            path = "/";
+        for (String location : new String[] {
+            getServletContext().getRealPath("/" + fileName),
+            projectRoot + File.separator + "Test" + File.separator + fileName,
+            projectRoot + File.separator + "Test" + File.separator + "src" + File.separator + "main" + File.separator + "webapp" + File.separator + fileName
+        }) {
+            if (location != null) {
+                File file = new File(location);
+                if (file.exists() && file.isFile()) return file;
+            }
         }
         
-        System.out.println("Requête reçue - URI: " + requestURI + ", Context: " + contextPath + ", Path: " + path);
+        try {
+            File testDir = new File(projectRoot, "Test");
+            return testDir.exists() ? searchFileRecursively(testDir, fileName) : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+    
+    private File searchFileRecursively(File dir, String fileName) {
+        if (dir == null || !dir.isDirectory()) return null;
+        File[] files = dir.listFiles();
+        if (files == null) return null;
+        
+        for (File file : files) {
+            if (file.isFile() && file.getName().equals(fileName)) return file;
+            if (file.isDirectory()) {
+                File found = searchFileRecursively(file, fileName);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+    
+    private void serveFile(File file, HttpServletResponse response) throws IOException {
+        String name = file.getName().toLowerCase();
+        String mimeType = getServletContext().getMimeType(name);
+        
+        if (mimeType == null) {
+            mimeType = name.endsWith(".html") || name.endsWith(".htm") ? "text/html" :
+                      name.endsWith(".css") ? "text/css" :
+                      name.endsWith(".js") ? "application/javascript" :
+                      name.endsWith(".jsp") ? "text/html" :
+                      name.endsWith(".png") ? "image/png" :
+                      name.endsWith(".jpg") || name.endsWith(".jpeg") ? "image/jpeg" : "text/plain";
+        }
+        
+        response.setContentType(mimeType);
+        
+        if (name.endsWith(".jsp")) {
+            response.getWriter().println(new String(Files.readAllBytes(file.toPath())));
+        } else {
+            response.setContentLength((int) file.length());
+            try (FileInputStream in = new FileInputStream(file);
+                 OutputStream out = response.getOutputStream()) {
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = in.read(buffer)) != -1) out.write(buffer, 0, bytesRead);
+            }
+        }
+    }
 
+    private void processRequest(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+        if (path.isEmpty()) path = "/";
+        
+        // Ressources statiques
+        if (path.toLowerCase().matches(".*\\.(jsp|html|htm|css|js|png|jpg|gif|ico)$")) {
+            try {
+                RequestDispatcher dispatcher = request.getRequestDispatcher(path.startsWith("/") ? path : "/" + path);
+                if (dispatcher != null) {
+                    dispatcher.forward(request, response);
+                    return;
+                }
+            } catch (Exception ignored) {}
+            
+            File resourceFile = findFile(path);
+            if (resourceFile != null) {
+                serveFile(resourceFile, response);
+                return;
+            }
+        }
+        
+        // Mappings d'URL
+        Mapping mapping = urlMappings.get(path);
+        if (mapping != null) {
+            response.setContentType("text/html;charset=UTF-8");
+            try {
+                Object result = mapping.execute();
+                response.getWriter().println(result != null ? result.toString() : 
+                    "<h1>Exécution réussie</h1><p>URL: " + path + "</p>");
+                return;
+            } catch (Exception e) {
+                response.getWriter().println("<h1>Erreur: " + e.getMessage() + "</h1>");
+                return;
+            }
+        }
+        
+        // Fichier sans extension
+        File resourceFile = findFile(path);
+        if (resourceFile != null) {
+            serveFile(resourceFile, response);
+            return;
+        }
+        
+        // Page de debug
         response.setContentType("text/html;charset=UTF-8");
         PrintWriter out = response.getWriter();
-
-        Mapping mapping = urlMappings.get(path);
+        out.println("<!DOCTYPE html><html><body>");
+        out.println("<h1>Framework - Debug Info</h1>");
+        out.println("<p><strong>URL:</strong> " + path + "</p>");
+        out.println("<p><strong>Package:</strong> " + basePackage + "</p>");
         
-        if (mapping != null) {
-            try {
-                System.out.println("Exécution du mapping pour: " + path);
-                Object result = mapping.execute();
-                
-                if (result != null) {
-                    out.println(result.toString());
-                } else {
-                    out.println("<h1>Méthode exécutée avec succès</h1>");
-                    out.println("<p>URL: " + path + "</p>");
-                    out.println("<p>Contrôleur: " + mapping.getClassName() + "</p>");
-                    out.println("<p>Méthode: " + mapping.getMethodName() + "</p>");
-                }
-            } catch (Exception e) {
-                System.err.println("Erreur lors de l'exécution du mapping: " + e.getMessage());
-                e.printStackTrace();
-                out.println("<h1>Erreur lors de l'exécution</h1>");
-                out.println("<p>URL: " + path + "</p>");
-                out.println("<p>Erreur: " + e.getMessage() + "</p>");
+        if (!urlMappings.isEmpty()) {
+            out.println("<h3>URLs disponibles:</h3><ul>");
+            for (Map.Entry<String, Mapping> e : urlMappings.entrySet()) {
+                out.println("<li><a href='" + request.getContextPath() + e.getKey() + "'>" + e.getKey() + 
+                           "</a> → " + e.getValue().getClassName() + "." + e.getValue().getMethodName() + "()</li>");
             }
-        } else {
-            System.out.println("Aucun mapping trouvé pour: " + path);
-            // URL ne correspond à aucun contrôleur
-            out.println("<!DOCTYPE html>");
-            out.println("<html>");
-            out.println("<head><title>Framework - Debug</title></head>");
-            out.println("<body>");
-            out.println("<h1>Framework - Debug Info</h1>");
-            out.println("<p><strong>URL demandée:</strong> " + path + "</p>");
-            out.println("<p><strong>Package de base:</strong> " + basePackage + "</p>");
-            out.println("<p><strong>Nombre de mappings:</strong> " + urlMappings.size() + "</p>");
-            out.println("<hr>");
-            
-            if (urlMappings.isEmpty()) {
-                out.println("<h3 style='color: red;'>PROBLÈME: Aucun mapping trouvé!</h3>");
-                out.println("<p>Le framework n'a trouvé aucun contrôleur. Vérifiez:</p>");
-                out.println("<ul>");
-                out.println("<li>Que HomeController.class est dans WEB-INF/classes/</li>");
-                out.println("<li>Que la bibliothèque Reflections est dans WEB-INF/lib/</li>");
-                out.println("<li>Les logs de démarrage de Tomcat</li>");
-                out.println("</ul>");
-            } else {
-                out.println("<h3>URLs disponibles:</h3>");
-                out.println("<ul>");
-                for (String url : urlMappings.keySet()) {
-                    Mapping m = urlMappings.get(url);
-                    out.println("<li><a href='" + contextPath + url + "'>" + url + "</a> → " + 
-                               m.getClassName() + "." + m.getMethodName() + "()</li>");
-                }
-                out.println("</ul>");
-            }
-            
-            out.println("</body>");
-            out.println("</html>");
+            out.println("</ul>");
         }
-    }
-
-    public void setBasePackage(String basePackage) {
-        this.basePackage = basePackage;
+        out.println("</body></html>");
     }
 }
