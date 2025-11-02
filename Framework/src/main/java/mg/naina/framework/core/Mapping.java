@@ -3,7 +3,7 @@ package mg.naina.framework.core;
 import java.lang.reflect.Method;
 
 /**
- * Classe représentant le mapping entre une URL et une méthode de contrôleur
+ * Classe représentant le mapping entre une URL et une méthode de contrôleur.
  */
 public class Mapping {
     private String className;

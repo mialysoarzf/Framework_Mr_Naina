@@ -180,7 +180,7 @@ public class FrontController extends HttpServlet {
             try {
                 Object result = mapping.execute();
                 response.getWriter().println(result != null ? result.toString() : 
-                    "<h1>Exécution réussie</h1><p>URL: " + path + "</p>");
+                    "<h1>Exécution réussie </h1><p>URL: " + path + "</p>");
                 return;
             } catch (Exception e) {
                 response.getWriter().println("<h1>Erreur: " + e.getMessage() + "</h1>");
