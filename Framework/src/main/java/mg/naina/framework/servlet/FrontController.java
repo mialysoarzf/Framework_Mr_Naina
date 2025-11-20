@@ -3,6 +3,7 @@ package mg.naina.framework.servlet;
 import mg.naina.framework.annotation.Controller;
 import mg.naina.framework.annotation.UrlMapping;
 import mg.naina.framework.core.Mapping;
+import mg.naina.framework.models.ModelView;
 import org.reflections.Reflections;
 import org.reflections.util.ConfigurationBuilder;
 
@@ -179,8 +180,34 @@ public class FrontController extends HttpServlet {
             response.setContentType("text/html;charset=UTF-8");
             try {
                 Object result = mapping.execute();
+                
+                // Si le résultat est un ModelView, dispatcher vers la vue
+                if (result instanceof ModelView) {
+                    ModelView modelView = (ModelView) result;
+                    String viewPath = modelView.getView();
+                    
+                    // Chercher le fichier de vue
+                    File viewFile = findFile(viewPath);
+                    if (viewFile != null) {
+                        serveFile(viewFile, response);
+                        return;
+                    }
+                    
+                    // Si le fichier n'est pas trouvé, essayer avec le dispatcher
+                    try {
+                        RequestDispatcher dispatcher = request.getRequestDispatcher("/" + viewPath);
+                        if (dispatcher != null) {
+                            dispatcher.forward(request, response);
+                            return;
+                        }
+                    } catch (Exception ignored) {}
+                    
+                    response.getWriter().println("<h1>Erreur: Vue '" + viewPath + "' introuvable</h1>");
+                    return;
+                }
+                
                 response.getWriter().println(result != null ? result.toString() : 
-                    "<h1>Exécution réussie </h1><p>URL: " + path + "</p>");
+                    "<h1>Exécution réussie</h1><p>URL: " + path + "</p>");
                 return;
             } catch (Exception e) {
                 response.getWriter().println("<h1>Erreur: " + e.getMessage() + "</h1>");
@@ -188,7 +215,22 @@ public class FrontController extends HttpServlet {
             }
         }
         
-        // Fichier sans extension
+        // Gestion spéciale pour l'URL racine "/"
+        if (path.equals("/")) {
+            response.setContentType("text/html;charset=UTF-8");
+            try {
+                Class<?> cls = Class.forName("mg.naina.test.controller.HomeController");
+                Object instance = cls.getDeclaredConstructor().newInstance();
+                Method method = cls.getMethod("index");
+                Object result = method.invoke(instance);
+                response.getWriter().println(result != null ? result.toString() : 
+                    "<h1>Exécution réussie</h1><p>URL: /</p>");
+                return;
+            } catch (Exception e) {
+                response.getWriter().println("<h1>Erreur: " + e.getMessage() + "</h1>");
+                return;
+            }
+        }
         File resourceFile = findFile(path);
         if (resourceFile != null) {
             serveFile(resourceFile, response);
