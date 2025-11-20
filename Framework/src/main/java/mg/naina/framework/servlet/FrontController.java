@@ -188,6 +188,23 @@ public class FrontController extends HttpServlet {
             }
         }
         
+                // Gestion spéciale pour l'URL racine "/"
+        if (path.equals("/")) {
+            response.setContentType("text/html;charset=UTF-8");
+            try {
+                Class<?> cls = Class.forName("mg.naina.test.controller.HomeController");
+                Object instance = cls.getDeclaredConstructor().newInstance();
+                Method method = cls.getMethod("index");
+                Object result = method.invoke(instance);
+                response.getWriter().println(result != null ? result.toString() : 
+                    "<h1>Exécution réussie</h1><p>URL: /</p>");
+                return;
+            } catch (Exception e) {
+                response.getWriter().println("<h1>Erreur: " + e.getMessage() + "</h1>");
+                return;
+            }
+        }
+        
         // Fichier sans extension
         File resourceFile = findFile(path);
         if (resourceFile != null) {
