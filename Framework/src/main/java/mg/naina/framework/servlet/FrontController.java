@@ -16,7 +16,7 @@ import java.util.*;
 
 public class FrontController extends HttpServlet {
     
-    private Map<String, Mapping> urlMappings = new HashMap<>();
+    private List<Mapping> urlMappings = new ArrayList<>();
     private String basePackage;
     private String projectRoot;
 
@@ -72,8 +72,8 @@ public class FrontController extends HttpServlet {
                 Object instance = cls.getDeclaredConstructor().newInstance();
                 for (Method method : cls.getDeclaredMethods()) {
                     if (method.isAnnotationPresent(UrlMapping.class)) {
-                        urlMappings.put(method.getAnnotation(UrlMapping.class).value(), 
-                            new Mapping(cls.getName(), method.getName(), method, instance));
+                        String pattern = method.getAnnotation(UrlMapping.class).value();
+                        urlMappings.add(new Mapping(cls.getName(), method.getName(), pattern, method, instance));
                     }
                 }
             } catch (Exception ignored) {}
@@ -125,6 +125,15 @@ public class FrontController extends HttpServlet {
         return null;
     }
     
+    private boolean matches(String path, String pattern) {
+        if (!pattern.contains("{")) {
+            return pattern.equals(path);
+        }
+        // Simple replacement for {id}
+        String regex = pattern.replace("{id}", "([^/]+)");
+        return path.matches(regex);
+    }
+    
     private void serveFile(File file, HttpServletResponse response) throws IOException {
         String name = file.getName().toLowerCase();
         String mimeType = getServletContext().getMimeType(name);
@@ -174,7 +183,13 @@ public class FrontController extends HttpServlet {
         }
         
         // Mappings d'URL
-        Mapping mapping = urlMappings.get(path);
+        Mapping mapping = null;
+        for (Mapping m : urlMappings) {
+            if (matches(path, m.getPattern())) {
+                mapping = m;
+                break;
+            }
+        }
         if (mapping != null) {
             response.setContentType("text/html;charset=UTF-8");
             try {
@@ -254,9 +269,9 @@ public class FrontController extends HttpServlet {
         
         if (!urlMappings.isEmpty()) {
             out.println("<h3>URLs disponibles:</h3><ul>");
-            for (Map.Entry<String, Mapping> e : urlMappings.entrySet()) {
-                out.println("<li><a href='" + request.getContextPath() + "/app" + e.getKey() + "'>" + e.getKey() + 
-                           "</a> → " + e.getValue().getClassName() + "." + e.getValue().getMethodName() + "()</li>");
+            for (Mapping m : urlMappings) {
+                out.println("<li><a href='" + request.getContextPath() + "/app" + m.getPattern() + "'>" + m.getPattern() + 
+                           "</a> → " + m.getClassName() + "." + m.getMethodName() + "()</li>");
             }
             out.println("</ul>");
         }

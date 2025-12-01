@@ -8,14 +8,16 @@ import java.lang.reflect.Method;
 public class Mapping {
     private String className;
     private String methodName;
+    private String pattern;
     private Method method;
     private Object controllerInstance;
 
     public Mapping() {}
 
-    public Mapping(String className, String methodName, Method method, Object controllerInstance) {
+    public Mapping(String className, String methodName, String pattern, Method method, Object controllerInstance) {
         this.className = className;
         this.methodName = methodName;
+        this.pattern = pattern;
         this.method = method;
         this.controllerInstance = controllerInstance;
     }
@@ -35,6 +37,14 @@ public class Mapping {
 
     public void setMethodName(String methodName) {
         this.methodName = methodName;
+    }
+
+    public String getPattern() {
+        return pattern;
+    }
+
+    public void setPattern(String pattern) {
+        this.pattern = pattern;
     }
 
     public Method getMethod() {
