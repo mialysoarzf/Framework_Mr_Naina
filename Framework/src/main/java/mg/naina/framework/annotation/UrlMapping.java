@@ -8,7 +8,6 @@ import java.lang.annotation.Target;
 /**
  * Annotation pour mapper une URL à une méthode
  */
-
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface UrlMapping {

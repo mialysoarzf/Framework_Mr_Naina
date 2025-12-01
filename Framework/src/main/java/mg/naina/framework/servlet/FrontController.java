@@ -154,24 +154,23 @@ public class FrontController extends HttpServlet {
     }
 
     private void processRequest(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-        String path = request.getRequestURI().substring(request.getContextPath().length());
+        String fullPath = request.getRequestURI().substring(request.getContextPath().length());
+        String path = fullPath;
+        if (path.startsWith("/app")) {
+            path = path.substring(4); // remove /app
+        }
         if (path.isEmpty()) path = "/";
         
-        // Ressources statiques
+        // Ressources statiques - essayer de les servir directement
         if (path.toLowerCase().matches(".*\\.(jsp|html|htm|css|js|png|jpg|gif|ico)$")) {
-            try {
-                RequestDispatcher dispatcher = request.getRequestDispatcher(path.startsWith("/") ? path : "/" + path);
-                if (dispatcher != null) {
-                    dispatcher.forward(request, response);
-                    return;
-                }
-            } catch (Exception ignored) {}
-            
+            // Chercher le fichier
             File resourceFile = findFile(path);
             if (resourceFile != null) {
                 serveFile(resourceFile, response);
                 return;
             }
+            // Si le fichier n'existe pas, ne pas utiliser le dispatcher
+            // On passe à la suite pour afficher la page de debug
         }
         
         // Mappings d'URL
@@ -186,21 +185,28 @@ public class FrontController extends HttpServlet {
                     ModelView modelView = (ModelView) result;
                     String viewPath = modelView.getView();
                     
+                    // Ajouter les données au request
+                    for (Map.Entry<String, Object> entry : modelView.getData().entrySet()) {
+                        request.setAttribute(entry.getKey(), entry.getValue());
+                    }
+                    
+                    // Pour les JSP, utiliser toujours le dispatcher
+                    if (viewPath.endsWith(".jsp")) {
+                        try {
+                            RequestDispatcher dispatcher = request.getRequestDispatcher("/" + viewPath);
+                            if (dispatcher != null) {
+                                dispatcher.forward(request, response);
+                                return;
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                    
                     // Chercher le fichier de vue
                     File viewFile = findFile(viewPath);
                     if (viewFile != null) {
                         serveFile(viewFile, response);
                         return;
                     }
-                    
-                    // Si le fichier n'est pas trouvé, essayer avec le dispatcher
-                    try {
-                        RequestDispatcher dispatcher = request.getRequestDispatcher("/" + viewPath);
-                        if (dispatcher != null) {
-                            dispatcher.forward(request, response);
-                            return;
-                        }
-                    } catch (Exception ignored) {}
                     
                     response.getWriter().println("<h1>Erreur: Vue '" + viewPath + "' introuvable</h1>");
                     return;
@@ -215,7 +221,7 @@ public class FrontController extends HttpServlet {
             }
         }
         
-        // Gestion spéciale pour l'URL racine "/"
+        // Gestion spéciale pour l'URL racine "/app/"
         if (path.equals("/")) {
             response.setContentType("text/html;charset=UTF-8");
             try {
@@ -237,18 +243,19 @@ public class FrontController extends HttpServlet {
             return;
         }
         
-        // Page de debug
+        // Page de debug pour URLs non trouvées
         response.setContentType("text/html;charset=UTF-8");
         PrintWriter out = response.getWriter();
         out.println("<!DOCTYPE html><html><body>");
         out.println("<h1>Framework - Debug Info</h1>");
-        out.println("<p><strong>URL:</strong> " + path + "</p>");
+        out.println("<p><strong>URL demandée:</strong> " + request.getRequestURI() + "</p>");
+        out.println("<p><strong>Path traité:</strong> " + path + "</p>");
         out.println("<p><strong>Package:</strong> " + basePackage + "</p>");
         
         if (!urlMappings.isEmpty()) {
             out.println("<h3>URLs disponibles:</h3><ul>");
             for (Map.Entry<String, Mapping> e : urlMappings.entrySet()) {
-                out.println("<li><a href='" + request.getContextPath() + e.getKey() + "'>" + e.getKey() + 
+                out.println("<li><a href='" + request.getContextPath() + "/app" + e.getKey() + "'>" + e.getKey() + 
                            "</a> → " + e.getValue().getClassName() + "." + e.getValue().getMethodName() + "()</li>");
             }
             out.println("</ul>");

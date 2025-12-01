@@ -6,7 +6,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Annotation pour marquer une classe comme contrôleur.
+ * Annotation pour marquer une classe comme contrôleur
  */
 
 @Target(ElementType.TYPE)
