@@ -271,7 +271,7 @@ public class FrontController extends HttpServlet {
         out.println("</body></html>");
     }
 
-    private Object executeMapping(Mapping mapping, HttpServletRequest request) throws Exception {
+private Object executeMapping(Mapping mapping, HttpServletRequest request) throws Exception {
     Method method = mapping.getMethod();
     Object instance = mapping.getControllerInstance();
     
@@ -288,8 +288,11 @@ public class FrontController extends HttpServlet {
     
     for (int i = 0; i < parameters.length; i++) {
         java.lang.reflect.Parameter param = parameters[i];
-        String paramName = param.getName();
         Class<?> paramType = param.getType();
+        
+        // Vérifier si le paramètre a l'annotation @RequestParam
+        mg.naina.framework.annotation.RequestParam requestParamAnnotation = param.getAnnotation(mg.naina.framework.annotation.RequestParam.class);
+        String paramName = (requestParamAnnotation != null) ? requestParamAnnotation.value() : param.getName();
         
         // Récupérer la valeur du paramètre de requête
         String paramValue = request.getParameter(paramName);
