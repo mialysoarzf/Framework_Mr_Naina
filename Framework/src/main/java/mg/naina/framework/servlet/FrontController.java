@@ -190,7 +190,7 @@ public class FrontController extends HttpServlet {
     if (mapping != null) {
         response.setContentType("text/html;charset=UTF-8");
         try {
-            Object result = executeMapping(mapping, request);
+            Object result = executeMapping(mapping, request, path);
             
             if (result instanceof ModelView) {
                 ModelView modelView = (ModelView) result;
@@ -271,7 +271,7 @@ public class FrontController extends HttpServlet {
         out.println("</body></html>");
     }
 
-private Object executeMapping(Mapping mapping, HttpServletRequest request) throws Exception {
+    private Object executeMapping(Mapping mapping, HttpServletRequest request, String path) throws Exception {
     Method method = mapping.getMethod();
     Object instance = mapping.getControllerInstance();
     
@@ -286,27 +286,60 @@ private Object executeMapping(Mapping mapping, HttpServletRequest request) throw
     // Préparer les arguments
     Object[] args = new Object[parameters.length];
     
+    // Extraire les variables de chemin si le pattern en contient
+    Map<String, String> pathVariables = extractPathVariables(mapping.getPattern(), path);
+    
     for (int i = 0; i < parameters.length; i++) {
         java.lang.reflect.Parameter param = parameters[i];
         Class<?> paramType = param.getType();
+        String paramValue = null;
         
-        // Vérifier si le paramètre a l'annotation @RequestParam
-        mg.naina.framework.annotation.RequestParam requestParamAnnotation = param.getAnnotation(mg.naina.framework.annotation.RequestParam.class);
-        String paramName = (requestParamAnnotation != null) ? requestParamAnnotation.value() : param.getName();
-        
-        // Récupérer la valeur du paramètre de requête
-        String paramValue = request.getParameter(paramName);
+        // Vérifier @PathVariable
+        mg.naina.framework.annotation.PathVariable pathVarAnnotation = param.getAnnotation(mg.naina.framework.annotation.PathVariable.class);
+        if (pathVarAnnotation != null) {
+            paramValue = pathVariables.get(pathVarAnnotation.value());
+        } else {
+            // Vérifier @RequestParam
+            mg.naina.framework.annotation.RequestParam requestParamAnnotation = param.getAnnotation(mg.naina.framework.annotation.RequestParam.class);
+            String paramName = (requestParamAnnotation != null) ? requestParamAnnotation.value() : param.getName();
+            paramValue = request.getParameter(paramName);
+        }
         
         if (paramValue == null) {
-            // Si le paramètre n'existe pas dans l'URL, mettre null
             args[i] = null;
         } else {
-            // Convertir la valeur selon le type
             args[i] = convertParameter(paramValue, paramType);
         }
     }
     
     return method.invoke(instance, args);
+}
+
+private Map<String, String> extractPathVariables(String pattern, String path) {
+    Map<String, String> variables = new HashMap<>();
+    if (!pattern.contains("{")) return variables;
+    
+    // Remplacer {variable} par un groupe nommé pour regex
+    String regex = pattern.replaceAll("\\{([^}]+)\\}", "(?<$1>[^/]+)");
+    java.util.regex.Pattern p = java.util.regex.Pattern.compile(regex);
+    java.util.regex.Matcher m = p.matcher(path);
+    
+    if (m.matches()) {
+        for (String groupName : getGroupNames(pattern)) {
+            variables.put(groupName, m.group(groupName));
+        }
+    }
+    return variables;
+}
+
+private List<String> getGroupNames(String pattern) {
+    List<String> names = new ArrayList<>();
+    java.util.regex.Pattern p = java.util.regex.Pattern.compile("\\{([^}]+)\\}");
+    java.util.regex.Matcher m = p.matcher(pattern);
+    while (m.find()) {
+        names.add(m.group(1));
+    }
+    return names;
 }
 
 private Object convertParameter(String value, Class<?> targetType) {
