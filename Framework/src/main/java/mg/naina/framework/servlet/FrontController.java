@@ -163,78 +163,71 @@ public class FrontController extends HttpServlet {
     }
 
     private void processRequest(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-        String fullPath = request.getRequestURI().substring(request.getContextPath().length());
-        String path = fullPath;
-        if (path.startsWith("/app")) {
-            path = path.substring(4); // remove /app
+    String fullPath = request.getRequestURI().substring(request.getContextPath().length());
+    String path = fullPath;
+    if (path.startsWith("/app")) {
+        path = path.substring(4);
+    }
+    if (path.isEmpty()) path = "/";
+    
+    // Ressources statiques
+    if (path.toLowerCase().matches(".*\\.(jsp|html|htm|css|js|png|jpg|gif|ico)$")) {
+        File resourceFile = findFile(path);
+        if (resourceFile != null) {
+            serveFile(resourceFile, response);
+            return;
         }
-        if (path.isEmpty()) path = "/";
-        
-        // Ressources statiques - essayer de les servir directement
-        if (path.toLowerCase().matches(".*\\.(jsp|html|htm|css|js|png|jpg|gif|ico)$")) {
-            // Chercher le fichier
-            File resourceFile = findFile(path);
-            if (resourceFile != null) {
-                serveFile(resourceFile, response);
-                return;
-            }
-            // Si le fichier n'existe pas, ne pas utiliser le dispatcher
-            // On passe à la suite pour afficher la page de debug
+    }
+    
+    // Mappings d'URL
+    Mapping mapping = null;
+    for (Mapping m : urlMappings) {
+        if (matches(path, m.getPattern())) {
+            mapping = m;
+            break;
         }
-        
-        // Mappings d'URL
-        Mapping mapping = null;
-        for (Mapping m : urlMappings) {
-            if (matches(path, m.getPattern())) {
-                mapping = m;
-                break;
-            }
-        }
-        if (mapping != null) {
-            response.setContentType("text/html;charset=UTF-8");
-            try {
-                Object result = mapping.execute();
+    }
+    if (mapping != null) {
+        response.setContentType("text/html;charset=UTF-8");
+        try {
+            Object result = executeMapping(mapping, request);
+            
+            if (result instanceof ModelView) {
+                ModelView modelView = (ModelView) result;
+                String viewPath = modelView.getView();
                 
-                // Si le résultat est un ModelView, dispatcher vers la vue
-                if (result instanceof ModelView) {
-                    ModelView modelView = (ModelView) result;
-                    String viewPath = modelView.getView();
-                    
-                    // Ajouter les données au request
-                    for (Map.Entry<String, Object> entry : modelView.getData().entrySet()) {
-                        request.setAttribute(entry.getKey(), entry.getValue());
-                    }
-                    
-                    // Pour les JSP, utiliser toujours le dispatcher
-                    if (viewPath.endsWith(".jsp")) {
-                        try {
-                            RequestDispatcher dispatcher = request.getRequestDispatcher("/" + viewPath);
-                            if (dispatcher != null) {
-                                dispatcher.forward(request, response);
-                                return;
-                            }
-                        } catch (Exception ignored) {}
-                    }
-                    
-                    // Chercher le fichier de vue
-                    File viewFile = findFile(viewPath);
-                    if (viewFile != null) {
-                        serveFile(viewFile, response);
-                        return;
-                    }
-                    
-                    response.getWriter().println("<h1>Erreur: Vue '" + viewPath + "' introuvable</h1>");
+                for (Map.Entry<String, Object> entry : modelView.getData().entrySet()) {
+                    request.setAttribute(entry.getKey(), entry.getValue());
+                }
+                
+                if (viewPath.endsWith(".jsp")) {
+                    try {
+                        RequestDispatcher dispatcher = request.getRequestDispatcher("/" + viewPath);
+                        if (dispatcher != null) {
+                            dispatcher.forward(request, response);
+                            return;
+                        }
+                    } catch (Exception ignored) {}
+                }
+                
+                File viewFile = findFile(viewPath);
+                if (viewFile != null) {
+                    serveFile(viewFile, response);
                     return;
                 }
                 
-                response.getWriter().println(result != null ? result.toString() : 
-                    "<h1>Exécution réussie</h1><p>URL: " + path + "</p>");
-                return;
-            } catch (Exception e) {
-                response.getWriter().println("<h1>Erreur: " + e.getMessage() + "</h1>");
+                response.getWriter().println("<h1>Erreur: Vue '" + viewPath + "' introuvable</h1>");
                 return;
             }
+            
+            response.getWriter().println(result != null ? result.toString() : 
+                "<h1>Exécution réussie</h1><p>URL: " + path + "</p>");
+            return;
+        } catch (Exception e) {
+            response.getWriter().println("<h1>Erreur: " + e.getMessage() + "</h1>");
+            return;
         }
+    }
         
         // Gestion spéciale pour l'URL racine "/app/"
         if (path.equals("/")) {
@@ -277,4 +270,61 @@ public class FrontController extends HttpServlet {
         }
         out.println("</body></html>");
     }
+
+    private Object executeMapping(Mapping mapping, HttpServletRequest request) throws Exception {
+    Method method = mapping.getMethod();
+    Object instance = mapping.getControllerInstance();
+    
+    // Récupérer les paramètres de la méthode
+    java.lang.reflect.Parameter[] parameters = method.getParameters();
+    
+    if (parameters.length == 0) {
+        // Méthode sans paramètres
+        return method.invoke(instance);
+    }
+    
+    // Préparer les arguments
+    Object[] args = new Object[parameters.length];
+    
+    for (int i = 0; i < parameters.length; i++) {
+        java.lang.reflect.Parameter param = parameters[i];
+        String paramName = param.getName();
+        Class<?> paramType = param.getType();
+        
+        // Récupérer la valeur du paramètre de requête
+        String paramValue = request.getParameter(paramName);
+        
+        if (paramValue == null) {
+            // Si le paramètre n'existe pas dans l'URL, mettre null
+            args[i] = null;
+        } else {
+            // Convertir la valeur selon le type
+            args[i] = convertParameter(paramValue, paramType);
+        }
+    }
+    
+    return method.invoke(instance, args);
+}
+
+private Object convertParameter(String value, Class<?> targetType) {
+    if (value == null) return null;
+    
+    try {
+        if (targetType == String.class) {
+            return value;
+        } else if (targetType == Integer.class || targetType == int.class) {
+            return Integer.parseInt(value);
+        } else if (targetType == Long.class || targetType == long.class) {
+            return Long.parseLong(value);
+        } else if (targetType == Double.class || targetType == double.class) {
+            return Double.parseDouble(value);
+        } else if (targetType == Boolean.class || targetType == boolean.class) {
+            return Boolean.parseBoolean(value);
+        }
+    } catch (Exception e) {
+        return null;
+    }
+    
+    return null;
+}
 }
