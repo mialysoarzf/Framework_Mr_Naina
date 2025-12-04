@@ -5,11 +5,9 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/**
- * Annotation pour mapper une URL à une méthode
- */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface UrlMapping {
-    String value();
+    String value();  // L'URL
+    String method() default "GET";  // Méthode HTTP (GET, POST,...)
 }
