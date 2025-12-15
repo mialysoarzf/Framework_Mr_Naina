@@ -44,11 +44,12 @@
                 <configuration>
                     <source>17</source>
                     <target>17</target>
+                    <compilerArgs>
+                        <arg>-parameters</arg>
+                    </compilerArgs>
                 </configuration>
-                <compilerArgs>
-                    <arg>-parameters</arg>
-                </compilerArgs>
             </plugin>
         </plugins>
     </build>
+
 </project>

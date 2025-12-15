@@ -311,32 +311,58 @@ public class FrontServlet extends HttpServlet {
         // Extraire les variables de chemin si le pattern en contient
         Map<String, String> pathVariables = extractPathVariables(mapping.getPattern(), path);
         
-        for (int i = 0; i < parameters.length; i++) {
-            java.lang.reflect.Parameter param = parameters[i];
-            Class<?> paramType = param.getType();
-            String paramValue = null;
+        // Cas spécial pour Map<String, Object> formData
+        if (parameters.length == 1 && parameters[0].getType() == Map.class) {
+            Map<String, Object> formData = new HashMap<>();
+            Enumeration<String> paramNames = request.getParameterNames();
+            List<String> valuesList = new ArrayList<>();
             
-            // Vérifier @PathVariable
-            PathVariable pathVarAnnotation = param.getAnnotation(PathVariable.class);
-            if (pathVarAnnotation != null) {
-                paramValue = pathVariables.get(pathVarAnnotation.value());
-                args[i] = convertParameter(paramValue, paramType);
-                continue;
+            while (paramNames.hasMoreElements()) {
+                String paramName = paramNames.nextElement();
+                String paramValue = request.getParameter(paramName);
+                
+                // Créer une Map pour chaque champ
+                Map<String, String> fieldMap = new HashMap<>();
+                fieldMap.put(paramName, paramValue);
+                formData.put(paramName, fieldMap);
+                
+                // Ajouter à la liste des valeurs pour le tableau
+                valuesList.add(paramValue);
             }
             
-            // Vérifier @RequestParam
-            RequestParam requestParamAnnotation = param.getAnnotation(RequestParam.class);
-            if (requestParamAnnotation != null) {
-                String paramName = requestParamAnnotation.value();
+            // Réunir toutes les valeurs dans un tableau String
+            formData.put("all", valuesList.toArray(new String[0]));
+            
+            args[0] = formData;
+        } else {
+            // Logique existante pour les autres paramètres
+            for (int i = 0; i < parameters.length; i++) {
+                java.lang.reflect.Parameter param = parameters[i];
+                Class<?> paramType = param.getType();
+                String paramValue = null;
+                
+                // Vérifier @PathVariable
+                PathVariable pathVarAnnotation = param.getAnnotation(PathVariable.class);
+                if (pathVarAnnotation != null) {
+                    paramValue = pathVariables.get(pathVarAnnotation.value());
+                    args[i] = convertParameter(paramValue, paramType);
+                    continue;
+                }
+                
+                // Vérifier @RequestParam
+                RequestParam requestParamAnnotation = param.getAnnotation(RequestParam.class);
+                if (requestParamAnnotation != null) {
+                    String paramName = requestParamAnnotation.value();
+                    paramValue = request.getParameter(paramName);
+                    args[i] = convertParameter(paramValue, paramType);
+                    continue;
+                }
+                
+                // Utiliser le nom du paramètre de la méthode (sans annotation)
+                String paramName = param.getName();
                 paramValue = request.getParameter(paramName);
                 args[i] = convertParameter(paramValue, paramType);
-                continue;
             }
-            
-            // Utiliser le nom du paramètre de la méthode (sans annotation)
-            String paramName = param.getName();
-            paramValue = request.getParameter(paramName);
-            args[i] = convertParameter(paramValue, paramType);
         }
         
         return method.invoke(instance, args);
