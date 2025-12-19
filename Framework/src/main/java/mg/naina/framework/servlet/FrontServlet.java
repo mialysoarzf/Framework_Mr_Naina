@@ -1,6 +1,7 @@
 package mg.naina.framework.servlet;
 
 import mg.naina.framework.annotation.Controller;
+import mg.naina.framework.annotation.JSON;
 import mg.naina.framework.annotation.PathVariable;
 import mg.naina.framework.annotation.RequestParam;
 import mg.naina.framework.annotation.UrlMapping;
@@ -219,9 +220,24 @@ public class FrontServlet extends HttpServlet {
     }
     
     if (mapping != null) {
-        response.setContentType("text/html;charset=UTF-8");
         try {
+            Method mappingMethod = mapping.getMethod();
+            boolean isJsonResponse = mappingMethod.isAnnotationPresent(JSON.class);
+            
+            if (isJsonResponse) {
+                response.setContentType("application/json;charset=UTF-8");
+            } else {
+                response.setContentType("text/html;charset=UTF-8");
+            }
+            
             Object result = executeMapping(mapping, request, path);
+            
+            if (isJsonResponse) {
+                // Convertir le résultat en JSON
+                String jsonResponse = convertToJson(result);
+                response.getWriter().println(jsonResponse);
+                return;
+            }
             
             if (result instanceof ModelView) {
                 ModelView modelView = (ModelView) result;
@@ -440,5 +456,92 @@ public class FrontServlet extends HttpServlet {
         }
         
         return null;
+    }
+    
+    /**
+     * Convertit un objet en JSON (simple implémentation sans librairie externe)
+     */
+    private String convertToJson(Object obj) {
+        if (obj == null) {
+            return "null";
+        }
+        
+        if (obj instanceof String) {
+            return "\"" + escapeJson(obj.toString()) + "\"";
+        }
+        
+        if (obj instanceof Number || obj instanceof Boolean) {
+            return obj.toString();
+        }
+        
+        if (obj instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) obj;
+            StringBuilder json = new StringBuilder("{");
+            boolean first = true;
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (!first) json.append(",");
+                json.append("\"").append(entry.getKey()).append("\":");
+                json.append(convertToJson(entry.getValue()));
+                first = false;
+            }
+            json.append("}");
+            return json.toString();
+        }
+        
+        if (obj instanceof List) {
+            List<?> list = (List<?>) obj;
+            StringBuilder json = new StringBuilder("[");
+            boolean first = true;
+            for (Object item : list) {
+                if (!first) json.append(",");
+                json.append(convertToJson(item));
+                first = false;
+            }
+            json.append("]");
+            return json.toString();
+        }
+        
+        if (obj.getClass().isArray()) {
+            Object[] array = (Object[]) obj;
+            StringBuilder json = new StringBuilder("[");
+            boolean first = true;
+            for (Object item : array) {
+                if (!first) json.append(",");
+                json.append(convertToJson(item));
+                first = false;
+            }
+            json.append("]");
+            return json.toString();
+        }
+        
+        // Pour les objets personnalisés (POJO), convertir en JSON via réflexion
+        try {
+            StringBuilder json = new StringBuilder("{");
+            boolean first = true;
+            for (java.lang.reflect.Field field : obj.getClass().getDeclaredFields()) {
+                field.setAccessible(true);
+                Object value = field.get(obj);
+                if (!first) json.append(",");
+                json.append("\"").append(field.getName()).append("\":");
+                json.append(convertToJson(value));
+                first = false;
+            }
+            json.append("}");
+            return json.toString();
+        } catch (Exception e) {
+            return "\"" + escapeJson(obj.toString()) + "\"";
+        }
+    }
+    
+    /**
+     * Échappe les caractères spéciaux pour JSON
+     */
+    private String escapeJson(String str) {
+        if (str == null) return "";
+        return str.replace("\\", "\\\\")
+                  .replace("\"", "\\\"")
+                  .replace("\n", "\\n")
+                  .replace("\r", "\\r")
+                  .replace("\t", "\\t");
     }
 }
