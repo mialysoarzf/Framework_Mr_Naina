@@ -4,6 +4,7 @@ import mg.naina.framework.annotation.Controller;
 import mg.naina.framework.annotation.JSON;
 import mg.naina.framework.annotation.PathVariable;
 import mg.naina.framework.annotation.RequestParam;
+import mg.naina.framework.annotation.UploadedFile;
 import mg.naina.framework.annotation.UrlMapping;
 import mg.naina.framework.core.Mapping;
 import mg.naina.framework.models.ModelView;
@@ -12,6 +13,7 @@ import org.reflections.util.ConfigurationBuilder;
 
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
+import jakarta.servlet.annotation.MultipartConfig;
 import java.io.*;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
@@ -19,6 +21,15 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 
+/**
+ * Sprint 10: Support de l'upload de fichiers (simple et multiple)
+ * Utilise @UploadedFile pour gérer les fichiers uploadés
+ */
+@MultipartConfig(
+    fileSizeThreshold = 1024 * 1024 * 2,  // 2MB
+    maxFileSize = 1024 * 1024 * 10,        // 10MB
+    maxRequestSize = 1024 * 1024 * 50      // 50MB
+)
 public class FrontServlet extends HttpServlet {
     
     private List<Mapping> urlMappings = new ArrayList<>();
@@ -195,7 +206,14 @@ public class FrontServlet extends HttpServlet {
         path = path.substring(4);
     }
     if (path.isEmpty()) path = "/";
-    
+
+    // Gestion spéciale pour les uploads multipart - éviter les problèmes d'encodage
+    try {
+        request.setCharacterEncoding("UTF-8");
+    } catch (Exception e) {
+        // Ignore si déjà défini
+    }
+
     String httpMethod = request.getMethod(); // GET, POST, etc.
     
     // Ressources statiques
@@ -373,6 +391,57 @@ public class FrontServlet extends HttpServlet {
                     args[i] = convertParameter(paramValue, paramType);
                     continue;
                 }
+                
+                // Sprint 10: Vérifier @UploadedFile pour gérer les fichiers uploadés
+                UploadedFile uploadedFileAnnotation = param.getAnnotation(UploadedFile.class);
+                if (uploadedFileAnnotation != null) {
+                    String fieldName = uploadedFileAnnotation.value();
+                    
+                    // Gérer Map<String, byte[]> pour plusieurs fichiers
+                    if (paramType == Map.class) {
+                        Map<String, byte[]> filesMap = new HashMap<>();
+                        Collection<Part> parts = request.getParts();
+                        for (Part part : parts) {
+                            if (part.getName().equals(fieldName) && part.getSize() > 0) {
+                                String fileName = getFileName(part);
+                                byte[] fileContent = readFileContent(part);
+                                filesMap.put(fileName, fileContent);
+                            }
+                        }
+                        args[i] = filesMap;
+                        continue;
+                    }
+                    
+                    // Gérer byte[] pour un seul fichier
+                    if (paramType == byte[].class) {
+                        Part part = request.getPart(fieldName);
+                        if (part != null && part.getSize() > 0) {
+                            args[i] = readFileContent(part);
+                        } else {
+                            args[i] = null;
+                        }
+                        continue;
+                    }
+                    
+                    // Gérer Part directement
+                    if (paramType == Part.class) {
+                        args[i] = request.getPart(fieldName);
+                        continue;
+                    }
+                    
+                    // Gérer Collection<Part> pour plusieurs fichiers
+                    if (paramType == Collection.class || paramType == List.class) {
+                        List<Part> fileParts = new ArrayList<>();
+                        Collection<Part> parts = request.getParts();
+                        for (Part part : parts) {
+                            if (part.getName().equals(fieldName) && part.getSize() > 0) {
+                                fileParts.add(part);
+                            }
+                        }
+                        args[i] = fileParts;
+                        continue;
+                    }
+                }
 
                 // Si c'est un bean (POJO) personnalisé
                 if (!paramType.isPrimitive() && !paramType.getName().startsWith("java.")) {
@@ -543,5 +612,93 @@ public class FrontServlet extends HttpServlet {
                   .replace("\n", "\\n")
                   .replace("\r", "\\r")
                   .replace("\t", "\\t");
+    }
+    
+    /**
+     * Sprint 10: Extrait le nom du fichier depuis un Part avec gestion d'encodage
+     */
+    private String getFileName(Part part) {
+        String contentDisposition = part.getHeader("content-disposition");
+        if (contentDisposition != null) {
+            for (String token : contentDisposition.split(";")) {
+                if (token.trim().startsWith("filename")) {
+                    String fileName = token.substring(token.indexOf('=') + 1).trim().replace("\"", "");
+                    // Extraire seulement le nom du fichier (sans le chemin)
+                    int lastIndex = Math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf('\\'));
+                    String baseFileName = lastIndex >= 0 ? fileName.substring(lastIndex + 1) : fileName;
+
+                    // Nettoyer le nom du fichier pour éviter les caractères problématiques
+                    return sanitizeFileName(baseFileName);
+                }
+            }
+        }
+        return "uploaded_file";
+    }
+
+    /**
+     * Nettoie le nom du fichier pour éviter les caractères problématiques
+     */
+    private String sanitizeFileName(String fileName) {
+        if (fileName == null || fileName.isEmpty()) {
+            return "uploaded_file";
+        }
+
+        // Remplacer les caractères spéciaux par des underscores
+        String sanitized = fileName.replaceAll("[^a-zA-Z0-9\\.\\-_]", "_");
+
+        // S'assurer qu'il y a une extension
+        if (!sanitized.contains(".")) {
+            sanitized += ".dat";
+        }
+
+        return sanitized;
+    }
+    
+    /**
+     * Sprint 10: Lit le contenu d'un fichier uploadé sous forme de byte[]
+     */
+    private byte[] readFileContent(Part part) throws IOException {
+        try (InputStream inputStream = part.getInputStream();
+             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            return outputStream.toByteArray();
+        }
+    }
+    
+    /**
+     * Sprint 10: Sauvegarde un fichier uploadé dans un répertoire
+     */
+    public static void saveUploadedFile(byte[] fileContent, String destinationPath) throws IOException {
+        File destFile = new File(destinationPath);
+        File parentDir = destFile.getParentFile();
+        if (parentDir != null && !parentDir.exists()) {
+            parentDir.mkdirs();
+        }
+        try (FileOutputStream fos = new FileOutputStream(destFile)) {
+            fos.write(fileContent);
+        }
+    }
+    
+    /**
+     * Sprint 10: Sauvegarde un fichier uploadé à partir d'un Part
+     */
+    public static void saveUploadedFile(Part part, String destinationPath) throws IOException {
+        File destFile = new File(destinationPath);
+        File parentDir = destFile.getParentFile();
+        if (parentDir != null && !parentDir.exists()) {
+            parentDir.mkdirs();
+        }
+        try (InputStream input = part.getInputStream();
+             FileOutputStream output = new FileOutputStream(destFile)) {
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = input.read(buffer)) != -1) {
+                output.write(buffer, 0, bytesRead);
+            }
+        }
     }
 }
